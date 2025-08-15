@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+
+<html>
+    <head>
+        <!-- link to my css file -->
+        <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles.css') }}">
+        <!-- defines the character set -->
+        <meta charset="utf-8">
+        <!-- makes the width of the website the same as the device viewing it -->
+        <meta name="viewport" content="width=device-width, initial-scale=1"    
+        <!-- title of the page>
+        <title>Secure Messenger</title>
+    </head>
+    <body>
+        <!-- the information textbox -->
+        <textarea id="infobox" readonly>
+Information:
+        
+Enter your UserID at the top and confirm it with the button.
+
+You will then have access to the text box, upload button, steganography checkbox, and self-destruct timer.
+
+Text box:
+Simply enter text into the box and click send.
+
+Upload button:
+Click to select a file to be uploaded to the server. Only PNG image files and WAV audio files are supported.
+
+Steganography checkbox:
+To add an extra layer of security, you can tick this checkbox after both writing text and selecting a file to perform steganography. Your message will be embedded within the file using steganography, making the data more secure when it's being transmitted
+
+Self-destruct timer:
+You may select how long you want for your message to be displayed on the server-side anywhere between 1-30 seconds. If you want your message to stay permanently, leave the self-destruct timer at 0.</textarea>
+        <!-- userID input box -->
+        <input type="text" id="userIDinput" spellcheck="false" placeholder="UserID" maxLength="25" autocomplete="off">
+        <!-- userID confirm button -->
+        <button id="userIDconfirm" onclick="userIDclick()" title="Confirm UserID">✓</button>
+        <!-- text input box -->
+        <textarea id="textinputbox" placeholder="Input Text Here..." maxLength="446" name="message" disabled></textarea>
+        <!-- upload file button -->
+        <input type="file" name="filepath" id="uploadfile" hidden disabled>
+        <!-- label for the upload file button -->
+        <label for="uploadfile" id="uploadfilelabel">Upload File</label>
+        <!-- steganography check box -->
+        <input type="checkbox" id="stegcheckbox" style="display:none" disabled>
+        <!-- steganography checkbox -->
+        <label for="stegcheckbox" id="stegcheckboxlabel">Steganography checkbox</label>
+        <!-- Self-Destruct timer input box -->
+        <input id="erasetimer" value="0" type="number" min="0" max="30" disabled>
+        <!-- label for the self destruct timer -->
+        <label for="erasetimer" id="erasetimerlabel">Self-Destruct Timer</label>
+        <!-- send button that will do the checks to make sure everything is fine and ready to be sent to the server and then send it -->
+        <button id="sendbutton" style="display:none" onclick="sendtohost()" disabled></button>
+        <!-- label for the button -->
+        <label for="sendbutton" id="sendbuttonlabel">Send</label>
+        <script src="https://cdn.jsdelivr.net/npm/node-forge@1.0.0/dist/forge.min.js"></script>
+        <script>
+            // convert PEM to DER (format required for encryption)
+            function PemToDer(pem) {
+                const lines = pem.split('\n')
+                const base64 = lines.slice(1, -1).join('')
+                const der = forge.util.decode64(base64)
+                const derBuffer = forge.util.createBuffer(der)
+                return derBuffer.getBytes()
+            }
+            
+            // import public key
+            function importPublicKey(pem) {
+                const der = PemToDer(pem)
+                const publicKey = forge.pki.publicKeyFromAsn1(forge.asn1.fromDer(der))
+                return publicKey
+            }
+        
+            // make GET request to /ready endpoint to receive the public key
+            fetch("/ready")
+                .then(response => {
+                    // check if response status is OK
+                    if (!response.ok) {
+                        throw new Error("Request for public key response was not OK")
+                    }
+                    // return the response text
+                    return response.text()
+                })
+                .then(data => {
+                    // save the public key in a variable to be used during encryption
+                    publickeyPEM = data
+                    
+                    // define the publickey object
+                    publickey = importPublicKey(publickeyPEM)
+                })
+                .catch(error => {
+                    throw new Error("Request for public key caused an error during fetch operation:", error)
+                })
+            
+            
+            // get references to the file input and label elements
+            const fileinput = document.getElementById("uploadfile")
+            const filelabel = document.getElementById("uploadfilelabel")
+    
+            // add event listener to file input to activate when clicked on
+            fileinput.addEventListener("change", function() {
+                // check if a file is selected
+                if (fileinput.files.length > 0) {
+                    // update filelabel text with file name
+                    filelabel.textContent = fileinput.files[0].name
+                } else {
+                    // if no file is selected then keep the original text
+                    filelabel.textContent = "Upload File"
+                }
+            })
+            
+            
+            // when userID confirm button is clicked
+            function userIDclick() {
+                // get the userID
+                const userID = document.getElementById("userIDinput").value
+                // check whether the userID syntax is correct
+                const correctsyntax = /[a-zA-Z]/.test(userID)
+                if (userID.trim() !== "" && correctsyntax) {
+                    // enable all disabled sections
+                    document.getElementById("textinputbox").removeAttribute("disabled")
+                    document.getElementById("uploadfile").removeAttribute("disabled")
+                    document.getElementById("stegcheckbox").removeAttribute("disabled")
+                    document.getElementById("erasetimer").removeAttribute("disabled")
+                    document.getElementById("sendbutton").removeAttribute("disabled")
+                    document.getElementById("userIDinput").setAttribute("disabled", true)
+                    document.getElementById("userIDconfirm").setAttribute("disabled", true)
+                    document.getElementById("userIDinput").value = `UserID: ${userID}`
+        
+                    // add event listeners to check when the send button is hovered over or clicked
+                    const sendlabel = document.getElementById("sendbuttonlabel")
+                    sendlabel.addEventListener("mouseenter", function() {
+                        sendlabel.classList.add("hovered")
+                    })
+                    sendlabel.addEventListener("mouseleave", function() {
+                        sendlabel.classList.remove("hovered")
+                    })
+                    
+                    sendlabel.addEventListener("mousedown", function() {
+                        sendlabel.classList.add("clicked")
+                    })
+                    sendlabel.addEventListener("mouseup", function() {
+                        sendlabel.classList.remove("clicked")
+                    })
+                    
+                } else {
+                    alert("Enter a valid UserID.")
+                }
+            }
+
+            // encrypt text with the public key
+            function encrypttext(data) {
+                // return a promise object
+                return new Promise((resolve, reject) => {
+                    try {
+                        // encrypt the text
+                        const encryptedtext = publickey.encrypt(forge.util.encodeUtf8(data), 'RSA-OAEP', {
+                            md: forge.md.sha256.create()
+                        })
+                        console.log("Text encrypted successfully")
+                        // return the base64 encoded encrypted text
+                        resolve(forge.util.encode64(encryptedtext))
+                    } catch (error) {
+                        reject(new Error("Error occurred when encrypting data with public key: " + error))
+                    }
+                })
+            }
+            
+            // encrypt a file with the public key
+            function encryptfile(data) {
+            // return a promise object
+                return new Promise((resolve, reject) => {
+                    // define the filereader
+                    const filereader = new FileReader()
+                    
+                    filereader.onload = function (event) {
+                        try {
+                            // define the filecontent
+                            filecontent = event.target.result
+                            // generate the symmetric key and initialisation vector randomly
+                            symmetrickey = forge.random.getBytesSync(32)
+                            iv = forge.random.getBytesSync(16)
+                            // define the cipher to be used
+                            cipher = forge.cipher.createCipher('AES-CBC', symmetrickey)
+                            // read the file as a buffer
+                            filecontentbuffer = forge.util.createBuffer(filecontent, 'raw')
+                            
+                            // complete the symmetric encryption
+                            cipher.start({ iv: iv })
+                            cipher.update(forge.util.createBuffer(filecontentbuffer))
+                            cipher.finish()
+                            
+                            // store the result in encryptedfile as a bytes object
+                            encryptedfile = cipher.output.getBytes()
+                            
+                            // encrypt the symmetric key using the public key
+                            encryptedsymmetrickey = publickey.encrypt(symmetrickey, "RSA-OAEP", {
+                                md: forge.md.sha256.create()
+                            })
+
+                            // return base64 encoded values but leave iv in its initial form
+                            resolve({
+                                encryptedfile: forge.util.encode64(encryptedfile),
+                                encryptedsymmetrickey: forge.util.encode64(encryptedsymmetrickey),
+                                iv: iv
+                            })
+                        } catch (error) {
+                            reject(new Error("Error occurred during file encryption: " + error))
+                        }
+                    }
+                    filereader.onerror = function (event) {
+                        reject( new Error("Error occurred while reading the file: " + event))
+                    }
+                    // read the file as a data url (location of where the file is)
+                    filereader.readAsDataURL(data)
+                })
+            }
+            
+            // send the data to the server
+            function sendtohost() {
+                // define key variables
+                dosteg = document.getElementById("stegcheckbox").checked
+                file = document.getElementById("uploadfile").files[0]
+                message = document.getElementById("textinputbox").value
+                timetolive = document.getElementById("erasetimer").value
+                userid = document.getElementById("userIDinput").value
+                // get only the inputted UserID without the prefix
+                userid = userid.slice(8)
+                // combine required text data to form what will be sent as text data
+                textdata = timetolive + "%" + userid
+                // if the timetolive isn't between the allowed values
+                if (timetolive > 30 || timetolive < 0){
+                    alert("Enter a valid self-destruct timer value")
+                    return
+                }
+                // if the steganography checkbox was not checked
+                if (!dosteg) {
+                    // if user has selected a file and no text is input
+                    if (file && message == "") {
+                        // if the file extension is not one of the two accepted formats
+                        if (file.name.slice(-3) !== "png" && file.name.slice(-3) !== "wav") {
+                            alert("Please select a valid file type")
+                        }
+                        // else file was right type and now send the file
+                        else {
+                            // serve file via POST request to /send endpoint
+                            // create new formdata object which will be sent to the endpoint
+                            formdata = new FormData()
+                            
+                            // define the promises to be resolved before sending the data
+                            const promises = [
+                                encrypttext(textdata)
+                                    // wait for promise to resolve
+                                    .then(encryptedtextdata => {
+                                        formdata.append("encryptedtextdata", encryptedtextdata)
+                                    }),
+                                encryptfile(file)
+                                    // wait for promise to resolve
+                                    .then(result => {
+                                        formdata.append("encryptedfile", result.encryptedfile)
+                                        formdata.append("encryptedsymmetrickey", result.encryptedsymmetrickey)
+                                        formdata.append("iv", result.iv)
+                                    })
+                            ]
+                            
+                            // execute the promises
+                            Promise.all(promises)
+                                // wait for both promises to resolve
+                                .then(() => {
+                                    // send the data to the server
+                                    return fetch("/send", {
+                                        method:"POST",
+                                        body: formdata,
+                                    })
+                                })
+                                .then((response) => {
+                                    // check if response status is OK
+                                    if (!response.ok) {
+                                        throw new Error("Error occurred while sending data to the server: Response not OK")
+                                    }
+                                    // return the json response from the server
+                                    return response.json()
+                                })
+                                // log the response from the server
+                                .then((data) => {
+                                    console.log(data)
+                                })
+                                .catch(error => {
+                                    throw new Error("File encryption error:", error)
+                                })
+                        }
+                    // else if no file was selected and text is input
+                    } else if (typeof file == "undefined" && message !== "") {
+                        // serve file via POST request to /send endpoint
+                        // create new formdata object which will be sent to the endpoint
+                        formdata = new FormData()
+                        
+                        // define the promises to be resolved before sending the data
+                        const promises = [
+                            encrypttext(textdata)
+                                // wait for promise to resolve
+                                .then(encryptedtextdata => {
+                                    formdata.append("encryptedtextdata", encryptedtextdata)
+                                }),
+                            // encrypt the message with the public key
+                            encrypttext(message)
+                                // wait for promise to resolve
+                                .then(encryptedmessage => {
+                                    formdata.append("encryptedmessage", encryptedmessage)
+                                })
+                        ]
+
+                        // execute the promises
+                        Promise.all(promises)
+                            // wait for both promises to resolve
+                            .then(() => {
+                                return fetch("/send", {
+                                    method: "POST",
+                                    body: formdata,
+                                })
+                            })
+                            .then(response => {
+                                // check the response was OK
+                                if (!response.ok) {
+                                    throw new Error("Error occurred while sending data to the server")
+                                }
+                                // return the json response from the server
+                                return response.json()
+                            })
+                            // log the response from the server
+                            .then(data => {
+                                console.log(data)
+                            })
+                            .catch(error => {
+                                throw new Error("Error occurred while sending data to the server:", error)
+                            })
+                    // else if they are both empty
+                    } else if (typeof file == "undefined" && message == "") {
+                        alert("Please enter something to be sent")
+                    
+                    // else they are both full
+                    } else {
+                        alert("Please enter either a message or a file upload. If you want to do both click the steganography button")
+                    }
+                
+                // else the user checked the steganography box
+                } else {
+                    // if there is a selected file and text inputted
+                    if (file && message !== "") {
+                        // if the file extension is not a valid type
+                        if (file.name.slice(-3) !== "png" && file.name.slice(-3) !== "wav") {
+                            alert("Please select a valid file type")
+                        // if the file extension is the right type
+                        } else {
+                            // serve file and text via post request to /steganography endpoint for processing
+                            // create formdata object which will be sent to the endpoint
+                            formdata = new FormData()
+                            
+                            // add filepath and message parameters
+                            formdata.append("filepath", file)
+                            formdata.append("message", message)
+                            
+                            // make POST request to the /steganography endpoint with the formdata to receive the steganography file
+                            fetch("/steganography", {
+                                method: "POST",
+                                body: formdata,
+                            })
+                            
+                            .then(response => {
+                                // check the response was OK
+                                if (!response.ok) {
+                                    throw new Error("Error occured while requesting steganography service")
+                                }
+                                // return the received content as a blob (file)
+                                return response.blob()
+                            })
+                            .then(blob => {
+                                // save the steganography file in a variable
+                                stegfile = blob
+                                
+                                // create new formdata object for the upload to the next endpoint
+                                formdata2 = new FormData()
+                                
+                                // update the textdata to include the steganography extension which will be required in decryption
+                                textdata = textdata + "%" + file.name.slice(-3)
+                                
+                                // define the promises to be resolved before sending the data
+                                const promises = [
+                                    encrypttext(textdata)
+                                        // wait for promise to resolve
+                                        .then(encryptedtextdata => {
+                                            formdata2.append("encryptedtextdata", encryptedtextdata)
+                                        }),
+                                    // encrypt the file with the symmetric key
+                                    encryptfile(stegfile)
+                                        // wait for promise to resolve
+                                        .then(result => {
+                                            formdata2.append("encryptedfile", result.encryptedfile)
+                                            formdata2.append("encryptedsymmetrickey", result.encryptedsymmetrickey)
+                                            formdata2.append("iv", result.iv)                                        
+                                        })
+                                ]
+                                
+                                // execute the promises
+                                Promise.all(promises)
+                                    // wait for both promises to resolve
+                                    .then(() => {
+                                        // make a post request to the /send endpoint to send the data
+                                        fetch("/send", {
+                                            method: "POST",
+                                            body: formdata2
+                                        })
+                                        .then(response => {
+                                            // check if response was OK
+                                            if (!response.ok) {
+                                                throw new Error("Error occured while sending steganography data to the server: Response not OK")
+                                            }
+                                            // return the json response from the server
+                                            return response.json()
+                                        })
+                                        // log the response from the server
+                                        .then((data) => {
+                                            console.log(data)
+                                        })
+                                        .catch(error => {
+                                            throw new Error("Error occured while sending steganography data to the server:", error)
+                                        })
+                                    })
+                            })
+                            .catch(error => {
+                                throw new Error("Request for steganography process caused an error during fetch operation:", error)
+                            })
+                        }
+                    // if there isn't valid input for steganography
+                    } else {
+                        alert("Make sure a file is uploaded and there is text in the input box")
+                    }
+                }
+            }
+        </script>
+    </body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "secure-messenger-server",
+  "version": "1.0.0",
+  "description": "Node.js helper service for AES decryption in the E2E Encrypted Messenger.",
+  "main": "decryption.js",
+  "author": "Dashiell Ratcliffe",
+  "license": "ISC",
+  "dependencies": {
+    "node-forge": "^1.3.1"
+  }
+}
